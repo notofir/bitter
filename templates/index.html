@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <title>bitter</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css"
+          integrity="sha384-JcKb8q3iqJ61gNV9KGb8thSsNjpSL0n8PARn9HuZOnIxN0hoP+VmmDGMN5t9UJ0Z" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/3.7.0/animate.min.css">
+    <style>
+        td.bit-0 {
+            background-color: darkgrey;
+            display: inline-block;
+            padding: 1rem 1rem;
+            border: 1px solid black;
+        }
+
+        td.bit-1 {
+            background-color: white;
+            display: inline-block;
+            padding: 1rem 1rem;
+            border: 1px solid black;
+        }
+
+        td.bit-blank {
+            background-color: white;
+            display: inline-block;
+            padding: 1rem 1rem;
+            border: 1px solid white;
+        }
+
+        table.mine {
+            border-spacing: 0;
+            border-collapse: collapse;
+        }
+    </style>
+</head>
+<nav class="navbar navbar-light bg-light sticky-top">
+    <div class="container">
+        <a class="navbar-brand" id="loaded" href="#"></a>
+    </div>
+</nav>
+<body class="mine">
+<main class="mt-3">
+    <div class="container">
+        <div class="row">
+            <div class="col">
+                <template id="binary-template">
+                    <tr class="text-muted" id="content">
+                    </tr>
+                </template>
+                <div class="d-flex justify-content-center mb-3" id="top-spinner">
+                    No more data
+                </div>
+                <table id="bit-view" class="mine">
+                </table>
+                <div class="d-flex justify-content-center mb-3" id="bottom-spinner">
+                    <div id="last-bottom-load-trigger"></div>
+                    <div class="spinner-border" role="status"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+<script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"
+        integrity="sha384-DfXdz2htPH0lsSSs5nCTpuj/zy4C+OGpamoFVy38MVBnE+IbbVYUew+OrCXaRkfj"
+        crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"
+        integrity="sha384-9/reFTGAW83EW2RDu2S0VKaIzap3H66lZH81PoYlFhbGU+6BZp6G7niu735Sk7lN"
+        crossorigin="anonymous"></script>
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"
+        integrity="sha384-B4gt1jrGC7Jh4AgTPSdUtOBvfO8shuf57BaghqFfPlYxofvL8/KUEfYiJOMMV+rV"
+        crossorigin="anonymous"></script>
+<script>
+    function observe() {
+        currentTopObserve = document.querySelector(`#bit-${currentStart + bitsPerLoad / 2}`)
+        topObserver.observe(currentTopObserve);
+        topObserver.observe(topSpinner);
+        currentBottomObserve = document.querySelector(`#bit-${currentEnd - bitsPerLoad / 2}`)
+        bottomObserver.observe(currentBottomObserve);
+        bottomObserver.observe(bottomSpinner);
+    }
+
+    function unobserve() {
+        topObserver.unobserve(currentTopObserve);
+        bottomObserver.unobserve(currentBottomObserve);
+    }
+
+    function bitsToCells(line, currentPosition) {
+        let content = "";
+        for (let j = 0; j < line.length; j++) {
+            content += `<td id="bit-${currentPosition + j}" class="bit-${line[j]}"></td>`
+        }
+        return content;
+    }
+
+    function getBlanks(originalLineLength) {
+        let content = "";
+        for (let j = 0; j < bitsPerLine - originalLineLength; j++) {
+            content += `<td class="bit-blank"></td>`
+        }
+        return content;
+    }
+
+    function loadPrev(is_first_load) {
+        if (currentStart != 0) {
+            fetch(`/load?seek=${currentStart}&direction=prev`).then((response) => {
+                response.json().then((data) => {
+                    if (is_first_load) {
+                        unobserve();
+                    }
+                    if (currentEnd - currentStart >= maxPerPage) {
+                        for (let i = 0; i < linesPerLoad; i++) {
+                            bitView.removeChild(bitView.lastElementChild)
+                        }
+
+                        currentEnd = parseInt(bitView.lastElementChild.lastElementChild.id.split("-")[1]);
+                        bottomSpinner.innerHTML = spinner;
+                        bottomObserver.observe(bottomSpinner);
+                    }
+
+                    let i = 0;
+                    for (; i < data["lines"].length; i++) {
+                        let templateClone = template.content.cloneNode(true);
+                        currentStart -= data["lines"][i].length;
+                        let content = `<td id="offset-${currentStart}">${currentStart}</td>`
+                        content += getBlanks(data["lines"][i].length);
+                        content += bitsToCells(data["lines"][i], currentStart);
+                        templateClone.querySelector("#content").innerHTML = content;
+                        bitView.insertBefore(templateClone, bitView.firstElementChild);
+                    }
+
+                    loaded.innerText = `${currentStart}-${currentEnd} bits loaded`;
+                    if (!data["has_more"]) {
+                        topSpinner.innerHTML = "No more data";
+                        currentTopObserve.scrollIntoView({behavior: "auto", block: "nearest"});
+                    } else {
+                        if (is_first_load) {
+                            currentTopObserve.scrollIntoView({behavior: "auto", block: "nearest"});
+                            observe();
+                        } else {
+                            currentTopObserve = document.querySelector(`#bit-${initialSeek}`)
+                            currentTopObserve.scrollIntoView({behavior: "auto", block: "nearest"});
+                            topObserver.observe(currentTopObserve);
+                        }
+                    }
+                })
+            })
+        }
+    }
+
+    function loadNext(is_first_load) {
+        fetch(`/load?seek=${currentEnd}&direction=next`).then((response) => {
+            response.json().then((data) => {
+                if (is_first_load) {
+                    unobserve();
+                }
+                if (currentEnd - currentStart >= maxPerPage) {
+                    for (let i = 0; i < linesPerLoad; i++) {
+                        bitView.removeChild(bitView.firstElementChild)
+                    }
+                    currentStart = parseInt(bitView.firstElementChild.firstElementChild.id.split("-")[1]);
+                    topSpinner.innerHTML = spinner;
+                }
+                for (let i = 0; i < data["lines"].length; i++) {
+                    let templateClone = template.content.cloneNode(true);
+                    let content = `<td id="offset-${currentEnd}">${currentEnd}</td>`
+                    content += bitsToCells(data["lines"][i], currentEnd);
+                    content += getBlanks(data["lines"][i].length);
+                    templateClone.querySelector("#content").innerHTML = content;
+                    currentEnd += data["lines"][i].length;
+                    bitView.appendChild(templateClone);
+                }
+                loaded.innerText = `${currentStart}-${currentEnd} bits loaded`;
+                if (!data["has_more"]) {
+                    bottomSpinner.innerHTML = "No more data";
+                } else {
+                    if (is_first_load) {
+                        observe();
+                    } else {
+                        bottomObserver.observe(currentBottomObserve);
+                        bottomObserver.observe(bottomSpinner);
+                    }
+                }
+            })
+        })
+    }
+
+    const bitsPerLine = {
+    {
+        bits_per_line
+    }
+    }
+    ;
+    const linesPerLoad = {
+    {
+        lines_per_load
+    }
+    }
+    ;
+    const bitsPerLoad = bitsPerLine * linesPerLoad;
+    const bitView = document.querySelector("#bit-view");
+    const template = document.querySelector("#binary-template");
+    const loaded = document.querySelector("#loaded");
+    const bottomSpinner = document.querySelector("#bottom-spinner");
+    const topSpinner = document.querySelector("#top-spinner");
+    const queryString = window.location.search;
+    let currentBottomObserve = document.querySelector("#bit-view");
+    let currentTopObserve = document.querySelector("#bit-view");
+    const URLParams = new URLSearchParams(queryString);
+    let initialSeek = 0;
+    if (URLParams.has("seek")) {
+        initialSeek = parseInt(URLParams.get("seek"));
+    }
+    let currentStart = initialSeek;
+    let currentEnd = initialSeek;
+    const maxPerPage = bitsPerLoad * 4;
+    const spinner = "<div class=\"spinner-border\" role=\"status\"></div>"
+    let topObserver = new IntersectionObserver(entries => {
+        if (entries[0].intersectionRatio <= 0) {
+            return;
+        }
+        loadPrev(true);
+    });
+    let bottomObserver = new IntersectionObserver(entries => {
+        if (entries[0].intersectionRatio <= 0) {
+            return;
+        }
+        loadNext(true);
+    });
+    loadNext(false);
+    loadPrev(false);
+</script>
+</body>
+</html>
